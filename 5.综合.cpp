@@ -1,3 +1,4 @@
+#define BLINKER_BLE
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEServer.h>
@@ -11,10 +12,21 @@
 #include <RDA5807M.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <Blinker.h>
 
 // BLE
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+// Blinker
+BlinkerButton frequency_up_button("frequency_up");
+BlinkerButton frequency_down_button("frequency_down");
+BlinkerButton volume_up_button("volume_up");
+BlinkerButton volume_down_button("volume_down");
+BlinkerButton like_button("like");
+BlinkerButton dislike_button("dislike");
+BlinkerButton list_forward_button("list_forward");
+BlinkerButton list_backward_button("list_backward");
 
 // RTC
 RTC_DS1307 rtc;
@@ -38,12 +50,17 @@ RDA5807M radio; // Create an instance of Class for RDA5807M Chip
 // const char *password = "xw85705195";
 const char *ssid = "Moooooovi";
 const char *password = "qpmz2002";
-String APIKEY = "63d4f0c383e7dd88ae5e2e769922bcba";
+String APIKEY = "enter your OWN API-KEY";
 String CityID = "1816670"; // Your City ID
 WiFiClient client;
 char servername[] = "api.openweathermap.org"; // remote server we will connect to
 String result;
 StaticJsonDocument<1024> doc;
+
+// Online Time
+#define NTP1 "ntp1.aliyun.com"
+#define NTP2 "ntp2.aliyun.com"
+#define NTP3 "ntp3.aliyun.com"
 
 #define LOOP_WAIT_TIME 200
 #define WEATHER_WAIT_TIME 60000        // WEATHER_WAIT_TIME/1000 seconds
@@ -66,26 +83,6 @@ int update_what = 0; // 0是调整频段 1是调整音量 2是添加/删除收�
 
 #define PRESS_ADDRESS 0X57 // 按键模块从器件地址
 
-class MyCallbacks : public BLECharacteristicCallbacks
-{
-    void onWrite(BLECharacteristic *pChar)
-    {
-        std::string value = pChar->getValue();
-
-        if (value.length() > 0)
-        {
-            if (value == "like")
-                Serial.println("this is like ");
-            else if (value == "dislike")
-                Serial.println("this is dislike ");
-            else if (value == "update")
-                Serial.println("this is update ");
-            else
-                Serial.println("wrong input");
-        }
-    }
-};
-
 bool isIntInArray(int arr[], int number, int size)
 {
     for (int i = 0; i < size; ++i)
@@ -98,19 +95,53 @@ bool isIntInArray(int arr[], int number, int size)
     return false;
 }
 
+int FindIndex(int arr[], int target, int size)
+{
+    for (int i = 0; i < size; i++)
+    {
+        if (arr[i] == target)
+        {
+            return i;
+        }
+    }
+    return -1; // 未找到
+}
+
+int findMinDiffIndex(int arr[], int target, int size)
+{
+    int *diffArr = new int[size];
+    for (int i = 0; i < size; i++)
+    {
+        diffArr[i] = abs(arr[i] - target);
+    }
+    int minIndex = 0;
+    for (int i = 1; i < size; i++)
+    {
+        if (diffArr[i] < diffArr[minIndex])
+        {
+            minIndex = i;
+        }
+    }
+    delete[] diffArr;
+    return minIndex;
+}
+
 void draw_FM(int freq_band, int vol)
 {
     display.setCursor(0, 0);
     display.clearDisplay();
+    setClock();
     display.print("Freq Band :");
     display.println(int(freq_band));
     display.print("Volume :");
     display.println(vol);
+
     bool liked = isIntInArray(favorite_list, freq_band, LIST_MAX_LENGTH);
     if (liked)
         display.println("like");
     else
         display.println("dislike");
+
     display.print("now u can change ");
     switch (update_what)
     {
@@ -124,10 +155,51 @@ void draw_FM(int freq_band, int vol)
         display.print("fav list");
         break;
     case 3:
-        display.print("freqin ur fav list");
+        display.print("freq in ur fav list");
         break;
     }
     display.display();
+}
+
+void get_weather_info()
+{
+    interval_time += LOOP_WAIT_TIME;
+    if (interval_time >= WEATHER_WAIT_TIME)
+    {
+        interval_time = 0;
+        if (client.connect(servername, 80))
+        {
+            client.println("GET /data/2.5/weather?id=" + CityID + "&units=metric&APPID=" + APIKEY);
+        }
+        else
+        {
+            Serial.println("connection failed"); // error message if no client connect
+            Serial.println();
+        }
+
+        while (client.connected() && !client.available())
+            delay(1); // waits for data
+        while (client.connected() || client.available())
+        {                           // connected or data available
+            char c = client.read(); // gets byte from ethernet buffer
+            result = result + c;
+        }
+
+        client.stop(); // stop client
+        result.replace('[', ' ');
+        result.replace(']', ' ');
+        char jsonArray[result.length() + 1];
+        result.toCharArray(jsonArray, sizeof(jsonArray));
+        jsonArray[result.length() + 1] = '\0';
+        DeserializationError error = deserializeJson(doc, jsonArray);
+
+        if (error)
+        {
+            Serial.print(F("deserializeJson() failed with code "));
+            Serial.println(error.c_str());
+            return;
+        }
+    }
 }
 
 void draw_weather()
@@ -159,48 +231,6 @@ void draw_weather()
     display.println((char)247);
 
     display.display();
-}
-
-void get_weather_info()
-{
-    interval_time += LOOP_WAIT_TIME;
-    if (interval_time >= WEATHER_WAIT_TIME)
-    {
-        interval_time = 0;
-        if (client.connect(servername, 80))
-        {
-            client.println("GET /data/2.5/weather?id=" + CityID + "&units=metric&APPID=" + APIKEY);
-        }
-        else
-        {
-            Serial.println("connection failed"); // error message if no client connect
-            Serial.println();
-        }
-        // client.connect(servername, 80);
-
-        while (client.connected() && !client.available())
-            delay(1); // waits for data
-        while (client.connected() || client.available())
-        {                           // connected or data available
-            char c = client.read(); // gets byte from ethernet buffer
-            result = result + c;
-        }
-
-        client.stop(); // stop client
-        result.replace('[', ' ');
-        result.replace(']', ' ');
-        char jsonArray[result.length() + 1];
-        result.toCharArray(jsonArray, sizeof(jsonArray));
-        jsonArray[result.length() + 1] = '\0';
-        DeserializationError error = deserializeJson(doc, jsonArray);
-
-        if (error)
-        {
-            Serial.print(F("deserializeJson() failed with code "));
-            Serial.println(error.c_str());
-            return;
-        }
-    }
 }
 
 void update_freq(bool increase)
@@ -239,7 +269,7 @@ void update_fav(bool like)
     {
         if (isIntInArray(favorite_list, station_freq, LIST_MAX_LENGTH))
         {
-            favorite_list[idx4list--] = 0;
+            favorite_list[--idx4list] = 0;
             idx4list = (idx4list + LIST_MAX_LENGTH) % LIST_MAX_LENGTH;
             fav_list_length--;
         }
@@ -269,19 +299,20 @@ void update_vol(bool increase)
 
 void switch_in_fav_list(bool ascend)
 {
+    bool flag = favorite_list[(idx4switch - 1 + fav_list_length) % fav_list_length] == station_freq; // deprecated
     if (ascend)
     {
         station_freq = favorite_list[idx4switch++];
     }
     else
     {
-        station_freq = favorite_list[idx4switch--];
+        station_freq = favorite_list[--idx4switch];
     }
     idx4switch = (idx4switch + fav_list_length) % fav_list_length;
     radio.setBandFrequency(FIX_BAND, station_freq);
 }
 
-void begin_update()
+void BeginUpdate()
 {
     Wire.requestFrom(PRESS_ADDRESS, 2); // 从16按键请求一个字节
     while (Wire.available())
@@ -298,18 +329,6 @@ void begin_update()
             case 64: // 1
                 update_freq(1);
                 break;
-            case 32: // 2
-                break;
-            case 16: // 3
-                break;
-            case 8: // 4
-                break;
-            case 4: // 5
-                break;
-            case 2: // 6
-                break;
-            case 1: // 7
-                break;
             }
         }
         if (1 == update_what)
@@ -321,18 +340,6 @@ void begin_update()
                 break;
             case 64: // 1
                 update_vol(1);
-                break;
-            case 32: // 2
-                break;
-            case 16: // 3
-                break;
-            case 8: // 4
-                break;
-            case 4: // 5
-                break;
-            case 2: // 6
-                break;
-            case 1: // 7
                 break;
             }
         }
@@ -346,18 +353,6 @@ void begin_update()
             case 64: // 1
                 update_fav(1);
                 break;
-            case 32: // 2
-                break;
-            case 16: // 3
-                break;
-            case 8: // 4
-                break;
-            case 4: // 5
-                break;
-            case 2: // 6
-                break;
-            case 1: // 7
-                break;
             }
         }
         if (3 == update_what)
@@ -370,21 +365,111 @@ void begin_update()
             case 64: // 1
                 switch_in_fav_list(1);
                 break;
-            case 32: // 2
-                break;
-            case 16: // 3
-                break;
-            case 8: // 4
-                break;
-            case 4: // 5
-                break;
-            case 2: // 6
-                break;
-            case 1: // 7
-                break;
             }
         }
     }
+}
+
+void freq_up(const String &state)
+{
+    update_freq(true);
+}
+void freq_down(const String &state)
+{
+    update_freq(false);
+}
+void volume_up(const String &state)
+{
+    update_vol(true);
+}
+void volume_down(const String &state)
+{
+    update_vol(false);
+}
+void like(const String &state)
+{
+    update_fav(true);
+}
+void dislike(const String &state)
+{
+    update_fav(false);
+}
+void list_forward(const String &state)
+{
+    switch_in_fav_list(true);
+}
+void list_backward(const String &state)
+{
+    switch_in_fav_list(false);
+}
+
+void dataRead(const String &data)
+{
+    Serial.println(data);
+    int new_frequency = 0;
+
+    bool isValidFrequency = true;
+
+    for (char c : data)
+    {
+        if (!isdigit(c))
+        {
+            isValidFrequency = false;
+            break;
+        }
+    }
+
+    const char *freq_str = data.c_str();
+    if (isValidFrequency)
+    {
+        new_frequency = atoi(freq_str);
+        if (new_frequency >= MIN_FREQ && new_frequency <= MAX_FREQ)
+        {
+            if (isIntInArray(favorite_list, station_freq, LIST_MAX_LENGTH))
+            {
+                int idx = FindIndex(favorite_list, station_freq, LIST_MAX_LENGTH);
+                favorite_list[idx] = new_frequency;
+                station_freq = new_frequency;
+            }
+            else
+            {
+                Serial.println("Not valid because current frequency is not in favorite list!");
+            }
+        }
+        else
+            Serial.println("Not valid because beyond minmax value!");
+    }
+}
+
+void DisplayFavList()
+{
+    for (size_t i = 0; i < LIST_MAX_LENGTH; i++)
+    {
+        Serial.printf("%d, ", favorite_list[i]);
+    }
+    Serial.println();
+    Serial.printf("list index : %d\n", idx4list);
+    Serial.printf("list switch index : %d\n", idx4switch);
+}
+
+void setClock()
+{
+    struct tm dt;
+    if (!getLocalTime(&dt))
+    {
+        // 如果获取失败，就开启联网模式，获取时间
+        Serial.println("Failed to obtain time");
+        WiFi.mode(WIFI_STA); // 开启网络
+        WiFi.begin(ssid, password);
+        while (WiFi.status() != WL_CONNECTED)
+        {
+            delay(500);
+            Serial.print(".");
+        }
+        configTime(8 * 3600, 0, NTP1, NTP2, NTP3);
+        return;
+    }
+    display.println(&dt, "%F %T %A"); // 格式化输出:2021-10-24 23:00:44 Sunday
 }
 
 void setup()
@@ -395,16 +480,7 @@ void setup()
     pinMode(btn0, INPUT);
     pinMode(btn1, INPUT);
 
-    Serial.begin(9600);
-
-    // RTC
-    if (!rtc.begin())
-    {
-        Serial.println("Couldn't find RTC");
-        Serial.flush();
-        while (1)
-            delay(10);
-    }
+    Serial.begin(115200);
 
     // OLED
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
@@ -436,9 +512,6 @@ void setup()
     WiFi.mode(WIFI_STA); //   create wifi station
     WiFi.begin(ssid, password);
 
-    display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3D for 128x64
-    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-    display.clearDisplay();
     while (WiFi.status() != WL_CONNECTED)
     {
         delay(500);
@@ -446,6 +519,33 @@ void setup()
         display.print(".");
         display.display();
     }
+    configTime(8 * 3600, 0, NTP1, NTP2, NTP3);
+    setClock();
+
+    // RTC
+    if (!rtc.begin())
+    {
+        Serial.println("Couldn't find RTC");
+        Serial.flush();
+        while (1)
+            delay(10);
+    }
+    display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3D for 128x64
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.clearDisplay();
+
+    // Blinker
+    BLINKER_DEBUG.stream(Serial);
+    Blinker.begin();
+    Blinker.attachData(dataRead);
+    frequency_up_button.attach(freq_up);
+    frequency_down_button.attach(freq_down);
+    volume_up_button.attach(volume_up);
+    volume_down_button.attach(volume_down);
+    like_button.attach(like);
+    dislike_button.attach(dislike);
+    list_forward_button.attach(list_forward);
+    list_backward_button.attach(list_backward);
 }
 
 void loop()
@@ -466,6 +566,8 @@ void loop()
     {
         update_what = (update_what + 1) % 4;
     }
-    begin_update();
+    BeginUpdate();
+    // DisplayFavList();
+    Blinker.run();
     delay(LOOP_WAIT_TIME);
 }

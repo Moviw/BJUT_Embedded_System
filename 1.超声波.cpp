@@ -4,6 +4,8 @@
 #define GREEN_LED 5
 #define BLUE_LED 4
 
+double sum = 0;
+int count = 0;
 void setup()
 {
     Serial.begin(9600);
@@ -27,17 +29,24 @@ void loop()
     digitalWrite(TRIGGER_PIN, LOW);
     long duration = pulseIn(ECHO_PIN, HIGH);
     int distance = duration / 2 / 29.15;
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.println(" cm");
-    if (distance >= 10 and distance < 20)
+    sum += distance;
+    if (count % 3 == 2)
     {
-        digitalWrite(RED_LED, HIGH);
-        digitalWrite(GREEN_LED, HIGH);
-    }
-    if (distance < 10)
-    {
-        digitalWrite(RED_LED, HIGH);
+        sum = sum / 3;
+
+        Serial.print("Distance: ");
+        Serial.print(distance);
+        Serial.println(" cm");
+        if (sum >= 10 and sum < 20)
+        {
+            digitalWrite(RED_LED, HIGH);
+            digitalWrite(GREEN_LED, HIGH);
+        }
+        if (sum < 10)
+        {
+            digitalWrite(RED_LED, HIGH);
+        }
+        sum = 0;
     }
     delay(500);
 }

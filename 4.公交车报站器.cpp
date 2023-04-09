@@ -138,7 +138,7 @@ bool ArriveWhere()
 void ShowStation()
 {
     int address;
-    if (idx == 0)
+    if (0 == idx)
     {
         address = addr_count(GAO_M, GAO_L);
         matrix_addr(address);
@@ -152,7 +152,7 @@ void ShowStation()
         matrix_addr(address);
         DisplayLED(left_matrix_led, right_matrix_led);
     }
-    else if (idx == 1)
+    else if (1 == idx)
     {
         address = addr_count(SHUANG_M, SHUANG_L);
         matrix_addr(address);
@@ -162,7 +162,7 @@ void ShowStation()
         matrix_addr(address);
         DisplayLED(left_matrix_led, right_matrix_led);
     }
-    else if (idx == 2)
+    else if (2 == idx)
     {
         address = addr_count(GUAN_M, GUAN_L);
         matrix_addr(address);

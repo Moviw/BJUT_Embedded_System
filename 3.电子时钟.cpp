@@ -18,11 +18,9 @@ DateTime now;
 
 #define BUZ 0
 
-byte hour_alarm = 0;
-byte minute_alarm = 0;
+byte hour_alarm = 0, minute_alarm = 0;
 bool need_alarm = false;
 int state = 0;
-DateTime DT_alarm;
 int change_what = 0;
 int set_hour, set_minute, set_second;
 
