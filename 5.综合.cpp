@@ -1,7 +1,4 @@
 #define BLINKER_BLE
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
 #include "RTClib.h"
 #include <SPI.h>
 #include <Adafruit_GFX.h>
@@ -13,20 +10,19 @@
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include <Blinker.h>
-
-// BLE
-#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#include <vector>
+#include "EEPROM.h"
+int address = 0;
 
 // Blinker
-BlinkerButton frequency_up_button("frequency_up");
-BlinkerButton frequency_down_button("frequency_down");
-BlinkerButton volume_up_button("volume_up");
-BlinkerButton volume_down_button("volume_down");
+BlinkerButton frequency_up_button("FreqUp");
+BlinkerButton frequency_down_button("FreqDown");
+BlinkerButton volume_up_button("VolUp");
+BlinkerButton volume_down_button("VolDown");
 BlinkerButton like_button("like");
 BlinkerButton dislike_button("dislike");
-BlinkerButton list_forward_button("list_forward");
-BlinkerButton list_backward_button("list_backward");
+BlinkerButton list_forward_button("ListForward");
+BlinkerButton list_backward_button("ListBackward");
 
 // RTC
 RTC_DS1307 rtc;
@@ -41,17 +37,15 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 int station_freq = MIN_FREQ; ///< The station that will be tuned by this sketch is 89.30 MHz.
 #define MAX_VOLUME 10
 #define MIN_VOLUME 1
-int volume = 2; ///< The volume that will be set by this sketch is level 4.
+int volume = 1; ///< The volume that will be set by this sketch is level 4.
 
 RDA5807M radio; // Create an instance of Class for RDA5807M Chip
 
 // Weather
-// const char *ssid = "TP-LINK_AED0";
-// const char *password = "xw85705195";
 const char *ssid = "Moooooovi";
 const char *password = "qpmz2002";
-String APIKEY = "enter your OWN API-KEY";
-String CityID = "1816670"; // Your City ID
+String APIKEY = "Your own API-KEY";
+String CityID = "1816670"; // Beijing ID (Don't CHANGE)
 WiFiClient client;
 char servername[] = "api.openweathermap.org"; // remote server we will connect to
 String result;
@@ -63,8 +57,8 @@ StaticJsonDocument<1024> doc;
 #define NTP3 "ntp3.aliyun.com"
 
 #define LOOP_WAIT_TIME 200
-#define WEATHER_WAIT_TIME 60000        // WEATHER_WAIT_TIME/1000 seconds
-int interval_time = WEATHER_WAIT_TIME; // 先让他等于阈值 可以在开始时直接拿到天气数据
+#define WEATHER_WAIT_TIME 60000                         // WEATHER_WAIT_TIME/1000 seconds
+int interval_time = WEATHER_WAIT_TIME - LOOP_WAIT_TIME; // 先让他等于阈值 可以在开始时直接拿到天气数据
 
 // Other
 #define btn0 0
@@ -72,71 +66,48 @@ int interval_time = WEATHER_WAIT_TIME; // 先让他等于阈值 可以在开始�
 #define LED_RED 7
 #define LED_GREEN 5
 #define LED_BLUE 4
-#define LIST_MAX_LENGTH 5
-int favorite_list[LIST_MAX_LENGTH] = {0};
-int idx4list = 0;
-int fav_list_length = 0;
-int idx4switch = 0;
+
+std::vector<int> favorite_list;
+std::vector<int>::iterator pr;
+std::vector<int>::iterator br = favorite_list.begin();
 
 bool state = 0;      // 0是FM界面 1是天气界面
 int update_what = 0; // 0是调整频段 1是调整音量 2是添加/删除收藏夹中的元素 3是在收藏夹中切换
 
 #define PRESS_ADDRESS 0X57 // 按键模块从器件地址
 
-bool isIntInArray(int arr[], int number, int size)
+/**
+ * 该函数检查向量中是否存在整数，如果找到则返回其迭代器。
+ *
+ * @param elem 参数 elem 是对 std::vector<int> 的迭代器的引用。用于存放指向vector中符合一定条件的元素的迭代器。
+ *
+ * @return
+ * 函数“IsIntInArray”返回一个布尔值。如果在“favorite_list”向量中找到整数“station_freq”，它将返回“true”，并将“elem”迭代器设置为指向向量中与该整数匹配的元素。如果在向量中找不到整数，则函数返回“false”。
+ */
+bool IsIntInArray(std::vector<int>::iterator &elem)
 {
-    for (int i = 0; i < size; ++i)
+    for (std::vector<int>::iterator it = favorite_list.begin(); it != favorite_list.end(); it++)
     {
-        if (arr[i] == number)
+        if (station_freq == *it)
         {
+            elem = it;
             return true;
         }
     }
     return false;
 }
 
-int FindIndex(int arr[], int target, int size)
-{
-    for (int i = 0; i < size; i++)
-    {
-        if (arr[i] == target)
-        {
-            return i;
-        }
-    }
-    return -1; // 未找到
-}
-
-int findMinDiffIndex(int arr[], int target, int size)
-{
-    int *diffArr = new int[size];
-    for (int i = 0; i < size; i++)
-    {
-        diffArr[i] = abs(arr[i] - target);
-    }
-    int minIndex = 0;
-    for (int i = 1; i < size; i++)
-    {
-        if (diffArr[i] < diffArr[minIndex])
-        {
-            minIndex = i;
-        }
-    }
-    delete[] diffArr;
-    return minIndex;
-}
-
-void draw_FM(int freq_band, int vol)
+void draw_FM()
 {
     display.setCursor(0, 0);
     display.clearDisplay();
     setClock();
     display.print("Freq Band :");
-    display.println(int(freq_band));
+    display.println(int(station_freq));
     display.print("Volume :");
-    display.println(vol);
+    display.println(volume);
 
-    bool liked = isIntInArray(favorite_list, freq_band, LIST_MAX_LENGTH);
+    bool liked = IsIntInArray(pr);
     if (liked)
         display.println("like");
     else
@@ -163,48 +134,48 @@ void draw_FM(int freq_band, int vol)
 
 void get_weather_info()
 {
-    interval_time += LOOP_WAIT_TIME;
-    if (interval_time >= WEATHER_WAIT_TIME)
+    if (client.connect(servername, 80))
     {
-        interval_time = 0;
-        if (client.connect(servername, 80))
-        {
-            client.println("GET /data/2.5/weather?id=" + CityID + "&units=metric&APPID=" + APIKEY);
-        }
-        else
-        {
-            Serial.println("connection failed"); // error message if no client connect
-            Serial.println();
-        }
+        client.println("GET /data/2.5/weather?id=" + CityID + "&units=metric&APPID=" + APIKEY);
+    }
+    else
+    {
+        Serial.println("connection failed"); // error message if no client connect
+        Serial.println();
+    }
 
-        while (client.connected() && !client.available())
-            delay(1); // waits for data
-        while (client.connected() || client.available())
-        {                           // connected or data available
-            char c = client.read(); // gets byte from ethernet buffer
-            result = result + c;
-        }
+    while (client.connected() && !client.available())
+        delay(1); // waits for data
+    while (client.connected() || client.available())
+    {                           // connected or data available
+        char c = client.read(); // gets byte from ethernet buffer
+        result = result + c;
+    }
 
-        client.stop(); // stop client
-        result.replace('[', ' ');
-        result.replace(']', ' ');
-        char jsonArray[result.length() + 1];
-        result.toCharArray(jsonArray, sizeof(jsonArray));
-        jsonArray[result.length() + 1] = '\0';
-        DeserializationError error = deserializeJson(doc, jsonArray);
+    client.stop(); // stop client
+    result.replace('[', ' ');
+    result.replace(']', ' ');
+    char jsonArray[result.length() + 1];
+    result.toCharArray(jsonArray, sizeof(jsonArray));
+    jsonArray[result.length() + 1] = '\0';
+    DeserializationError error = deserializeJson(doc, jsonArray);
 
-        if (error)
-        {
-            Serial.print(F("deserializeJson() failed with code "));
-            Serial.println(error.c_str());
-            return;
-        }
+    if (error)
+    {
+        Serial.print(F("deserializeJson() failed with code "));
+        Serial.println(error.c_str());
+        return;
     }
 }
 
 void draw_weather()
 {
-    get_weather_info();
+    if (interval_time >= WEATHER_WAIT_TIME)
+    {
+        interval_time = 0;
+        get_weather_info();
+    }
+
     String location = doc["name"];
     String country = doc["sys"]["country"];
     int temperature = doc["main"]["temp"];
@@ -237,7 +208,7 @@ void update_freq(bool increase)
 {
     if (increase)
     {
-        station_freq += 50;
+        station_freq += 10;
         if (station_freq > MAX_FREQ)
         {
             station_freq = MIN_FREQ;
@@ -245,7 +216,7 @@ void update_freq(bool increase)
     }
     else
     {
-        station_freq -= 50;
+        station_freq -= 10;
         if (station_freq < MIN_FREQ)
         {
             station_freq = MAX_FREQ;
@@ -258,21 +229,15 @@ void update_fav(bool like)
 {
     if (like)
     {
-        if (!isIntInArray(favorite_list, station_freq, LIST_MAX_LENGTH))
-        {
-            favorite_list[idx4list++] = station_freq;
-            idx4list = idx4list % LIST_MAX_LENGTH;
-            fav_list_length++;
-        }
+        favorite_list.push_back(station_freq);
+        sort(favorite_list.begin(), favorite_list.end());
+        br = favorite_list.begin();
+        SaveData();
     }
     else
     {
-        if (isIntInArray(favorite_list, station_freq, LIST_MAX_LENGTH))
-        {
-            favorite_list[--idx4list] = 0;
-            idx4list = (idx4list + LIST_MAX_LENGTH) % LIST_MAX_LENGTH;
-            fav_list_length--;
-        }
+        favorite_list.erase(pr);
+        SaveData();
     }
 }
 
@@ -299,17 +264,33 @@ void update_vol(bool increase)
 
 void switch_in_fav_list(bool ascend)
 {
-    bool flag = favorite_list[(idx4switch - 1 + fav_list_length) % fav_list_length] == station_freq; // deprecated
-    if (ascend)
+    if (!favorite_list.empty())
     {
-        station_freq = favorite_list[idx4switch++];
+        if (ascend)
+        {
+            pr = br;
+            pr++;
+            if (pr != favorite_list.end())
+                br = pr;
+            else
+                pr = br;
+        }
+        else
+        {
+            pr = br;
+            if (pr != favorite_list.begin())
+            {
+                pr--;
+                br = pr;
+            }
+        }
+        radio.setBandFrequency(FIX_BAND, *pr);
+        station_freq = *pr;
     }
     else
     {
-        station_freq = favorite_list[--idx4switch];
+        Serial.println("Empty FavList");
     }
-    idx4switch = (idx4switch + fav_list_length) % fav_list_length;
-    radio.setBandFrequency(FIX_BAND, station_freq);
 }
 
 void BeginUpdate()
@@ -370,6 +351,7 @@ void BeginUpdate()
     }
 }
 
+// 蓝牙模块不会在传入函数的同时传入参数, 只能多此一举
 void freq_up(const String &state)
 {
     update_freq(true);
@@ -425,11 +407,13 @@ void dataRead(const String &data)
         new_frequency = atoi(freq_str);
         if (new_frequency >= MIN_FREQ && new_frequency <= MAX_FREQ)
         {
-            if (isIntInArray(favorite_list, station_freq, LIST_MAX_LENGTH))
+            if (IsIntInArray(pr))
             {
-                int idx = FindIndex(favorite_list, station_freq, LIST_MAX_LENGTH);
-                favorite_list[idx] = new_frequency;
                 station_freq = new_frequency;
+                favorite_list.push_back(station_freq);
+                sort(favorite_list.begin(), favorite_list.end());
+                br = favorite_list.begin();
+                SaveData();
             }
             else
             {
@@ -439,17 +423,6 @@ void dataRead(const String &data)
         else
             Serial.println("Not valid because beyond minmax value!");
     }
-}
-
-void DisplayFavList()
-{
-    for (size_t i = 0; i < LIST_MAX_LENGTH; i++)
-    {
-        Serial.printf("%d, ", favorite_list[i]);
-    }
-    Serial.println();
-    Serial.printf("list index : %d\n", idx4list);
-    Serial.printf("list switch index : %d\n", idx4switch);
 }
 
 void setClock()
@@ -470,6 +443,41 @@ void setClock()
         return;
     }
     display.println(&dt, "%F %T %A"); // 格式化输出:2021-10-24 23:00:44 Sunday
+}
+
+void SaveData()
+{
+    if (!favorite_list.empty())
+    {
+        for (std::vector<int>::iterator it = favorite_list.begin(); it != favorite_list.end(); it++)
+        {
+            EEPROM.writeInt(address, *it);
+            address += sizeof(int);
+        }
+        address = 10 * sizeof(int);
+        EEPROM.writeInt(address, favorite_list.size());
+        address = 0;
+    }
+    else
+    {
+        address = 10 * sizeof(int);
+        EEPROM.writeInt(address, -1);
+        address = 0;
+    }
+    EEPROM.commit();
+}
+
+void LoadData()
+{
+    int size = EEPROM.readInt(10 * sizeof(int));
+    if (size > 0 && size <= 5)
+    {
+        for (int i = 0; i < size; i++)
+        {
+            favorite_list.push_back(EEPROM.readInt(i * sizeof(int)));
+        }
+        br = favorite_list.begin();
+    }
 }
 
 void setup()
@@ -534,6 +542,15 @@ void setup()
     display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
     display.clearDisplay();
 
+    // EEPROM
+    if (!EEPROM.begin(1000))
+    {
+        Serial.println("Failed to initialise EEPROM");
+        Serial.println("Restarting...");
+        delay(1000);
+        ESP.restart();
+    }
+
     // Blinker
     BLINKER_DEBUG.stream(Serial);
     Blinker.begin();
@@ -546,13 +563,14 @@ void setup()
     dislike_button.attach(dislike);
     list_forward_button.attach(list_forward);
     list_backward_button.attach(list_backward);
+    LoadData();
 }
 
 void loop()
 {
     if (0 == state)
     {
-        draw_FM(station_freq, volume);
+        draw_FM();
     }
     else if (1 == state)
     {
@@ -567,7 +585,7 @@ void loop()
         update_what = (update_what + 1) % 4;
     }
     BeginUpdate();
-    // DisplayFavList();
     Blinker.run();
+    interval_time += LOOP_WAIT_TIME;
     delay(LOOP_WAIT_TIME);
 }
