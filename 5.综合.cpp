@@ -32,8 +32,8 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 // FM
 #define FIX_BAND RADIO_BAND_FM ///< The band that will be tuned by this sketch is FM.
-#define MAX_FREQ 10100
-#define MIN_FREQ 8760
+#define MAX_FREQ 10800
+#define MIN_FREQ 8750
 int station_freq = MIN_FREQ; ///< The station that will be tuned by this sketch is 89.30 MHz.
 #define MAX_VOLUME 10
 #define MIN_VOLUME 1
@@ -42,9 +42,9 @@ int volume = 1; ///< The volume that will be set by this sketch is level 4.
 RDA5807M radio; // Create an instance of Class for RDA5807M Chip
 
 // Weather
-const char *ssid = "Moooooovi";
-const char *password = "qpmz2002";
-String APIKEY = "Your own API-KEY";
+const char *ssid = "Your WiFi name";
+const char *password = "Your WiFi password";
+String APIKEY = "";
 String CityID = "1816670"; // Beijing ID (Don't CHANGE)
 WiFiClient client;
 char servername[] = "api.openweathermap.org"; // remote server we will connect to
@@ -248,7 +248,7 @@ void update_vol(bool increase)
         volume += 1;
         if (volume > MAX_VOLUME)
         {
-            volume = MIN_VOLUME;
+            volume = MAX_VOLUME;
         }
     }
     else
@@ -256,7 +256,7 @@ void update_vol(bool increase)
         volume -= 1;
         if (volume < MIN_VOLUME)
         {
-            volume = MAX_VOLUME;
+            volume = MIN_VOLUME;
         }
     }
     radio.setVolume(volume);
@@ -409,6 +409,7 @@ void dataRead(const String &data)
         {
             if (IsIntInArray(pr))
             {
+                favorite_list.erase(pr);
                 station_freq = new_frequency;
                 favorite_list.push_back(station_freq);
                 sort(favorite_list.begin(), favorite_list.end());
@@ -470,14 +471,14 @@ void SaveData()
 void LoadData()
 {
     int size = EEPROM.readInt(10 * sizeof(int));
-    if (size > 0 && size <= 5)
+    // if (size > 0 && size <= 5)
+    // {
+    for (int i = 0; i < size; i++)
     {
-        for (int i = 0; i < size; i++)
-        {
-            favorite_list.push_back(EEPROM.readInt(i * sizeof(int)));
-        }
-        br = favorite_list.begin();
+        favorite_list.push_back(EEPROM.readInt(i * sizeof(int)));
     }
+    br = favorite_list.begin();
+    // }
 }
 
 void setup()
